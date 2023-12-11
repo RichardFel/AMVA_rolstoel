@@ -1,6 +1,6 @@
 # %%
 # TODO
-
+# sample weights
 
 # Modules
 from sklearn.metrics import confusion_matrix
@@ -73,22 +73,29 @@ def remove_outliers(category_data,  category_part):
 
 
 # Settings
-charact = pd.read_excel(
-    'Characteristics/AMVA_karakteristieken_lopend_def.xlsx')
+# charact = pd.read_excel(
+#     'Characteristics/AMVA_karakteristieken_lopend_def.xlsx')
 measurements = {}
-path = 'Processed_data_3groups'
+path = 'Processed_data'
 Dimensions = 6
 Activity = 50
 
 # %%
-# Load data into one location
-total_parts = 0
+unique_pt = np.array([])
 for file in os.listdir(path):
     if file.endswith('.csv'):
-        data = pd.read_csv(f'{path}/{file}', index_col=0)
-        data = data.reset_index(drop=True)
-        total_parts += len(data) // 50
-        measurements[file] = data
+        unique_pt = np.append(unique_pt, file.split('_')[0])
+unique_pt = np.unique(unique_pt)
+# Load data into one location
+total_parts = 0
+for pt in unique_pt:
+    # data_ankle = pd.read_csv(f'{path}/{pt}_2_1.csv', index_col=0)
+    data_arm = pd.read_csv(f'{path}/{pt}_3_1.csv', index_col=0)
+    # data_ankle = data_ankle.reset_index(drop=True)
+    data_arm = data_arm.reset_index(drop=True)
+    data = data_arm.drop(columns=['index'])
+    total_parts += len(data_arm) // 50
+    measurements[pt] = data
 
 data = np.empty((total_parts, Activity, Dimensions))
 outcome = np.empty((total_parts))
@@ -96,32 +103,34 @@ participant = np.empty((total_parts))
 
 # Load data into numpy array
 counter = 0
-for measurement in measurements:
-    subj = measurement.split("_")[0]
-    file_size = len(measurements[measurement])
+for pt in measurements:
+    file_size = len(measurements[pt])
     for i in range(file_size//50):
-        part = measurements[measurement].loc[i*50:i*50+49]
+        part = measurements[pt].loc[i*50:i*50+49]
         data[counter] = part.loc[:, 'Ax':'Gz'].values
         outcome[counter] = part.iloc[0]['Categories']
-        participant[counter] = subj
+        participant[counter] = pt
         counter += 1
 
 
 # %%
+unique, counts = np.unique(outcome, return_counts=True)
+for c, freq in zip(unique, counts):
+    print(f'Class: {c}, count {freq}')
 # Clean data
 sit_clean, sit_part_clean = remove_outliers(data[np.where(outcome == 0)[0], :, :],
                                             participant[np.where(outcome == 0)[0]])
-cyc_clean, cyc_part_clean = remove_outliers(data[np.where(outcome == 1)[0], :, :],
+wal_clean, wal_part_clean = remove_outliers(data[np.where(outcome == 1)[0], :, :],
                                             participant[np.where(outcome == 1)[0]])
-wal_clean, wal_part_clean = remove_outliers(data[np.where(outcome == 2)[0], :, :],
+oth_clean, oth_part_clean = remove_outliers(data[np.where(outcome == 2)[0], :, :],
                                             participant[np.where(outcome == 2)[0]])
 
 
-data_clean = np.concatenate((sit_clean, cyc_clean, wal_clean))
+data_clean = np.concatenate((sit_clean, wal_clean, oth_clean))
 part_clean = np.concatenate(
-    (sit_part_clean, cyc_part_clean, wal_part_clean))
-outcomes_clean = np.concatenate((np.zeros(len(sit_clean)), np.ones(len(cyc_clean)),
-                                 np.ones(len(wal_clean))*2))
+    (sit_part_clean, wal_part_clean, oth_part_clean))
+outcomes_clean = np.concatenate((np.zeros(len(sit_clean)),
+                                 np.ones(len(wal_clean)), np.ones(len(oth_clean))*2))
 print(f'data_clean: {len(data_clean)}')
 print(f'part_clean: {len(part_clean)}')
 print(f'outcomes_clean: {len(outcomes_clean)}')
@@ -166,27 +175,12 @@ def define_model():
 # %%
 # Settings
 results_all = {}
-results_young = {}
-results_old = {}
-results_pd = {}
-results_age = {}
-
-
 unique_part = np.unique(part_clean)
-young = charact.loc[charact['Leeftijd'] < 13, 'Proefpersoonnummer'].unique()
-young = unique_part[np.isin(unique_part, young)]
-old = charact.loc[((charact['Leeftijd'] > 12) &
-                   (charact['Onderzoeksgroep'] == 'normaal looppatroon')), 'Proefpersoonnummer'].unique()
-old = unique_part[np.isin(unique_part, old)]
-abnormal = charact.loc[charact['Onderzoeksgroep'] == 'afwijkend looppatroon']
-abnormal = unique_part[np.isin(unique_part, abnormal)]
-
-batch_size = 5
-repeat = 10
-groups = {'unique_part': unique_part, 'young': young,
-          'abnormal': abnormal, 'old': old}
+batch_size = 3
+repeat = 1
+groups = {'unique_part': unique_part}
 # Split 20/80 for the train/validate set
-data_split = int((len(unique_part) - 5) / 5)
+data_split = int((len(unique_part) - batch_size) / 5)
 
 # Repeated all
 for i in range(repeat):
@@ -249,8 +243,8 @@ for i in range(repeat):
                                 validation_data=(
                                     validate_data, validate_outcome),
                                 callbacks=[early_stopping], shuffle=True,
-                                class_weight=class_weight_dict,
-                                verbose=False)
+                                # class_weight=class_weight_dict,
+                                verbose=True)
 
             test_predictions = model.predict(test_data)
             # Convert one-hot encoded predictions to labels
@@ -272,78 +266,22 @@ for i in range(repeat):
             val_acc = history.history['val_accuracy']
             n_epochs = len(train_acc)
 
-            if name == 'abnormal':
-                results_pd[f'{i}_{counter}'] = [
-                    selected_batch, selection, n_epochs, train_acc, val_acc, overall_accuracy,
-                    weighted_recall, weighted_precision, weighted_f1_score, confusion_mat, normalized_confusion_mat]
+            results_all[f'{i}_{counter}'] = [
+                selected_batch, selection, n_epochs, train_acc, val_acc, overall_accuracy,
+                weighted_recall, weighted_precision, weighted_f1_score, confusion_mat, normalized_confusion_mat]
 
-            elif name == 'young':
-                results_young[f'{i}_{counter}'] = [
-                    selected_batch, selection, n_epochs, train_acc, val_acc, overall_accuracy,
-                    weighted_recall, weighted_precision, weighted_f1_score, confusion_mat, normalized_confusion_mat]
-            elif name == 'old':
-                results_old[f'{i}_{counter}'] = [
-                    selected_batch, selection, n_epochs, train_acc, val_acc, overall_accuracy,
-                    weighted_recall, weighted_precision, weighted_f1_score, confusion_mat, normalized_confusion_mat]
-            else:
-                results_all[f'{i}_{counter}'] = [
-                    selected_batch, selection, n_epochs, train_acc, val_acc, overall_accuracy,
-                    weighted_recall, weighted_precision, weighted_f1_score, confusion_mat, normalized_confusion_mat]
-
-            for part in selected_batch:
-                # Select individual
-                idx_tmp_data = np.where(np.isin(part_clean, part))[0]
-                tmp_data = data_clean[idx_tmp_data, :, :]
-                tmp_outcome = y_one_hot[idx_tmp_data]
-                tmp_data, tmp_outcome = shuffle(tmp_data, tmp_outcome)
-                tmp_predictions = model.predict(tmp_data)
-
-                # Convert one-hot encoded predictions to labels
-                tmp_predictions = np.argmax(tmp_predictions, axis=1)
-                tmp_labels = np.argmax(tmp_outcome, axis=1)
-
-                # Calculate outcomes per individual
-                overall_accuracy = accuracy_score(tmp_labels, tmp_predictions)
-                part_data = charact.loc[charact['Proefpersoonnummer'] == part, [
-                    'Onderzoeksgroep', 'Leeftijd']].values[0]
-                results_age[f'{i}_{counter}_{part}'] = [
-                    part, part_data[0], part_data[1], overall_accuracy]
 
 results_all = pd.DataFrame.from_dict(results_all, orient='index', columns=['selected_batch', 'selection', 'n_epochs', 'train_acc',
                                                                            'val_acc', 'overall_accuracy', 'weighted_recall',
                                                                            'weighted_precision', 'weighted_f1_score', 'confusion_mat',
                                                                            'normalized_confusion_mat'])
-results_all.to_excel('Results/Results_all_childeren_l5o.xlsx')
+results_all.to_excel('Results/Results_arm_l3o.xlsx')
 
-results_young = pd.DataFrame.from_dict(results_young, orient='index', columns=['selected_batch', 'selection', 'n_epochs', 'train_acc',
-                                                                               'val_acc', 'overall_accuracy', 'weighted_recall',
-                                                                               'weighted_precision', 'weighted_f1_score', 'confusion_mat',
-                                                                               'normalized_confusion_mat'])
-results_young.to_excel('Results/results_young_l5o.xlsx')
-
-results_old = pd.DataFrame.from_dict(results_old, orient='index', columns=['selected_batch', 'selection', 'n_epochs', 'train_acc',
-                                                                           'val_acc', 'overall_accuracy', 'weighted_recall',
-                                                                           'weighted_precision', 'weighted_f1_score', 'confusion_mat',
-                                                                           'normalized_confusion_mat'])
-results_old.to_excel('Results/results_old_l5o.xlsx')
-
-results_pd = pd.DataFrame.from_dict(results_pd, orient='index', columns=['selected_batch', 'selection', 'n_epochs', 'train_acc',
-                                                                         'val_acc', 'overall_accuracy', 'weighted_recall',
-                                                                         'weighted_precision', 'weighted_f1_score', 'confusion_mat',
-                                                                         'normalized_confusion_mat'])
-results_pd.to_excel('Results/results_pd_l5o.xlsx')
-
-results_age = pd.DataFrame.from_dict(results_age, orient='index', columns=[
-                                     'Subject', 'Type', 'Age', 'overall_accuracy'])
-results_age.to_excel('Results/results_age_l5o.xlsx')
 
 # %%
 # Results all data
 
-results = {'results_all': results_all,
-           'results_young': results_young,
-           'results_pd': results_pd,
-           'results_old': results_old}
+results = {'results_all': results_all}
 
 confidence = 0.95
 
@@ -399,38 +337,18 @@ for name, df in results.items():
     normalized_confusion_mat = (
         np.mean(normalized_confusion_mat)*100).astype(int)
     # Create a heatmap for the confusion matrix
-    sns.set(font_scale=1.8)
+    sns.set(font_scale=1.4)
     fig, ax = plt.subplots(figsize=(6, 6))
     sns.heatmap(normalized_confusion_mat, annot=True,  cmap="Blues", cbar=False, square=True,
-                xticklabels=["Stationary", "Cycling", "Locomotion"],
-                yticklabels=["Stationary", "Cycling", "Locomotion"], ax=ax)
+                xticklabels=["Stationary",
+                             "Locomotion", "Wheelchair activity"],
+                yticklabels=["Stationary", "Locomotion", "Wheelchair activity"], ax=ax)
     ax.set_xlabel("Predicted Categories")
     ax.set_ylabel("Observed Categories")
-    if name == 'results_pd':
-        ax.set_title(f"Childeren with PD")
-    elif name == 'results_young':
-        ax.set_title(f"Childeren aged 2-12")
-    elif name == 'results_old':
-        ax.set_title(f"Childeren aged 13-18")
-    else:
-        ax.set_title(f"All childeren")
+    ax.set_title(f"Confusion matrix  arm sensor")
 
     fig.tight_layout()
-    fig.savefig(f'Figures/Confusion_matrix_3groups_{name}.png', dpi=400)
+    fig.savefig(f'Figures/Confusion_matrix_3groups_arm_{name}.png', dpi=400)
 
-
-# %%
-sns.set_style("whitegrid")
-results_age['Age'] = results_age['Age'].astype('int32')
-results_age['overall_accuracy'] *= 100
-fig, ax = plt.subplots(figsize=(10, 6))
-sns.lineplot(data=results_age, x='Age', y='overall_accuracy', ax=ax)
-ax.set_ylim(60, 90)
-ax.set_xlim(-1, 21)
-ax.set_xlabel('Age [years]')
-ax.set_ylabel('Accuracy')
-ax.set_title('Model accuracy per age')
-fig.tight_layout()
-fig.savefig(f'Figures/Accuracy_per_age.png', dpi=400)
 
 # %%

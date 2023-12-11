@@ -52,7 +52,7 @@ for file in os.listdir(data_path):
         continue
 
     # Check if data already processed
-    if os.path.isfile(f'Labelled_data/{subject}_{measurement}.csv'):
+    if os.path.isfile(f'Labelled_data/{subject}_{sensor}_{measurement}.csv'):
         continue
 
     # Print
@@ -69,7 +69,7 @@ for file in os.listdir(data_path):
                                    names=['Start', 'Eind', 'Duur', 'Activiteit',
                                           'Label', 'Shake start', 'shake end'],
                                    usecols=[0, 1, 2, 3, 4, 5, 6],
-                                   sep=',', skiprows=2)
+                                   sep=';', skiprows=2)
     except pd.errors.ParserError:
         labeled_data = pd.read_csv(f'Labels/{subject}.{measurement}.csv',
                                    names=['Start', 'Eind', 'Duur', 'Activiteit',
@@ -106,7 +106,8 @@ for file in os.listdir(data_path):
         expected_samples = (end_time - start_time) * Resample_freq
     except (ValueError, IndexError, TypeError):
         logging.warning(f'{file}: Label error')
-
+        continue
+    
     if len(sensor_data) < expected_samples:
         logging.warning(f'{file}: less samples than expected')
         continue
@@ -131,7 +132,10 @@ for file in os.listdir(data_path):
     # correct for the seconds difference
     new_start = (start_time - flip_time_start) * 10
     new_end = (flip_time_end - end_time) * 10
-    new_sensor_data = new_sensor_data.iloc[new_start:-new_end]
+    if new_end == 0:
+        new_sensor_data = new_sensor_data.iloc[new_start:]
+    else:
+        new_sensor_data = new_sensor_data.iloc[new_start:-new_end]
 
     # Labels
     start = labeled_data.loc[labeled_data['Start']
@@ -164,9 +168,9 @@ for file in os.listdir(data_path):
         f'Labelled_data/{subject}_{sensor}_{measurement}.csv')
 
     # Save metadata
-    file_details.loc[subject] = [subject, sensor, measurement, flip_time_start,
-                                 start_time, flip_time_end, end_time,
-                                 expected_samples, int(shake_1[0][0]), int(shake_2[0][0])]
+    file_details.loc[f'{subject}_{sensor}_{measurement}'] = [subject, sensor, measurement, flip_time_start,
+                                                             start_time, flip_time_end, end_time,
+                                                             expected_samples, int(shake_1[0][0]), int(shake_2[0][0])]
     file_details.to_excel('Meta_data/file_details.xlsx', index=0)
 
     # Close plot
