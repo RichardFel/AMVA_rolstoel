@@ -24,7 +24,9 @@ Characteristics/
 Labelled_data/
 Labels/
 Processed_data/
+processed_data_2groups/
 Raw_data/
+hyperparametertuning/
 
 share/python-wheels/
 *.egg-info/
@@ -159,3 +161,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 Figures/.DS_Store
+Figures
