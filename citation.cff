@@ -1,0 +1,9 @@
+cff-version: 0.1.0
+message: "If you use this software, please cite it as below."
+authors:
+Barbara Engels, Manon AT Bloemen, Richard Felius, Eline AM Bolster, Harriët Wittink, Iris Melchers, Raoul HH Engelbert, Jan Willem Gorter
+title: "Assessing validity: a wearable device to measure physical behavior in children who use a manual wheelchair"
+version: 1.0.0
+doi: 
+date-released: 2024-08-08
+url: "https://github.com/RichardFel/AMVA_rolstoel"
